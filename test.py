@@ -1,4 +1,5 @@
 import requests as r
+import sys
 import numpy as np
 import pandas as pd
 import wandb
@@ -20,7 +21,7 @@ class User():
     
   def generate_timestamps(self):
       #Average person will spend 50 secs with standard dev of 20
-      s = np.random.normal(50, 20, 25)
+      s = np.random.normal(50, 20, 12)
       #Negative becomes positive
       s = [np.abs(x) for x in s]
       
@@ -54,17 +55,19 @@ def generate_paths(user_list):
     normalized_df = pd.concat([item for sublist in ls_dfs for item in sublist],ignore_index=True) 
 
     # now we sample all the pages
-    samples = normalized_df.sample(n=len(user_list)*25)
+    samples = normalized_df.sample(n=len(user_list)*12)
     for i, user in enumerate( user_list):
-        for j in range(25):
-            user.timestamps[j] = (user.timestamps[j], samples.iloc[i*25+j])
+        for j in range(12):
+            user.timestamps[j] = (user.timestamps[j], samples.iloc[i*12+j])
     
     return user_list
 
 def generate_requests(user_list):
 
     ## First get the filter
-    with open('./assets/Filter/filter.pickle', 'rb') as f:
+    api = wandb.Api()
+    filter_path = api.artifact('genie/potential_filter:latest').download() + '/filter.pickle'
+    with open(filter_path, 'rb') as f:
         filter_model = dill.loads(f.read())['model']
 
     requests = [] 
@@ -81,12 +84,12 @@ def generate_requests(user_list):
 
 def post(data,time):
     res = r.post('http://159.196.178.94:8080/',json=data)
-    with open('./tests/responses', 'ab+') as f:
+    with open('responses', 'ab+') as f:
             dill.dump([time,res],f)
     print(time,res.elapsed)
       
-def main(n_users=10):
 
+def main(n_users=10):
     user_list = []
     for i in range(n_users):
         user = User()
@@ -96,15 +99,12 @@ def main(n_users=10):
     user_list= generate_paths(user_list)
     requests = generate_requests(user_list)
 
-    requests = [x for x in requests if x['offset'] < 30*60]
-    
+    requests = [x for x in requests if x['offset'] < 10*60]
+
     try:
-        os.remove('./tests/responses')
+        os.remove('responses')
     except FileNotFoundError:
         pass
-
-
-
     s = BackgroundScheduler()
     s.add_executor('processpool')
     now = datetime.now()
@@ -115,7 +115,7 @@ def main(n_users=10):
     time.sleep(30*60)
 
     data = []
-    with open('./tests/responses', 'rb') as fr:
+    with open('responses', 'rb') as fr:
         try:
             while True:
                 data.append(dill.load(fr))
@@ -128,10 +128,16 @@ def main(n_users=10):
         request_data = json.loads(res[1].request.body)
         df.loc[len(df)] = [request_data['user_id'], res[0], request_data, res[1].elapsed]
 
-    df.to_pickle(f'./tests/{n_users}.pickle')
+    df.to_pickle(f'{n_users}.pickle')
 
 if __name__ == '__main__':
-    if len(sys.args) > 1:
-        main(sys.args[1])
+    nltk.download('punkt',download_dir='./venv/nltk_data')
+    if len(sys.argv) > 1:
+        lengths = sys.argv[1:]
+        for users in lengths:
+            r.get('http://159.196.178.94:8080/reset')
+            main(int(users))
+         
     else:
-        main()
+        print('No lengths specified')
+
