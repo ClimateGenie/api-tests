@@ -21,7 +21,7 @@ class User():
     
   def generate_timestamps(self):
       #Average person will spend 50 secs with standard dev of 20
-      s = np.random.normal(50, 20, 12)
+      s = np.random.normal(50, 20, 6)
       #Negative becomes positive
       s = [np.abs(x) for x in s]
       
@@ -55,10 +55,10 @@ def generate_paths(user_list):
     normalized_df = pd.concat([item for sublist in ls_dfs for item in sublist],ignore_index=True) 
 
     # now we sample all the pages
-    samples = normalized_df.sample(n=len(user_list)*12)
+    samples = normalized_df.sample(n=len(user_list)*6)
     for i, user in enumerate( user_list):
         for j in range(12):
-            user.timestamps[j] = (user.timestamps[j], samples.iloc[i*12+j])
+            user.timestamps[j] = (user.timestamps[j], samples.iloc[i*6+j])
     
     return user_list
 
@@ -99,7 +99,7 @@ def main(n_users=10):
     user_list= generate_paths(user_list)
     requests = generate_requests(user_list)
 
-    requests = [x for x in requests if x['offset'] < 10*60]
+    requests = [x for x in requests if x['offset'] < 5*60]
 
     try:
         os.remove('responses')
@@ -112,7 +112,7 @@ def main(n_users=10):
         s.add_job(post, trigger = 'date', run_date =  now + timedelta(seconds=request['offset']),kwargs= {'data':request['data'], 'time':request['offset']})
 
     s.start()
-    time.sleep(10*60)
+    time.sleep(5*60)
 
     data = []
     with open('responses', 'rb') as fr:
