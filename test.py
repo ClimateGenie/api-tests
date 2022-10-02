@@ -1,4 +1,6 @@
 import requests as r
+import json
+from apscheduler.executors.pool import ProcessPoolExecutor
 import sys
 import numpy as np
 import pandas as pd
@@ -57,7 +59,7 @@ def generate_paths(user_list):
     # now we sample all the pages
     samples = normalized_df.sample(n=len(user_list)*6)
     for i, user in enumerate( user_list):
-        for j in range(12):
+        for j in range(6):
             user.timestamps[j] = (user.timestamps[j], samples.iloc[i*6+j])
     
     return user_list
@@ -105,8 +107,7 @@ def main(n_users=10):
         os.remove('responses')
     except FileNotFoundError:
         pass
-    s = BackgroundScheduler()
-    s.add_executor('processpool')
+    s = BackgroundScheduler(executors = { 'processpool': ProcessPoolExecutor(48) })
     now = datetime.now()
     for request in requests:
         s.add_job(post, trigger = 'date', run_date =  now + timedelta(seconds=request['offset']),kwargs= {'data':request['data'], 'time':request['offset']})
