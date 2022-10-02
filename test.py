@@ -112,7 +112,7 @@ def main(n_users=10):
         s.add_job(post, trigger = 'date', run_date =  now + timedelta(seconds=request['offset']),kwargs= {'data':request['data'], 'time':request['offset']})
 
     s.start()
-    time.sleep(30*60)
+    time.sleep(10*60)
 
     data = []
     with open('responses', 'rb') as fr:
