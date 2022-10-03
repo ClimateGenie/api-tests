@@ -1,4 +1,8 @@
 import requests as r
+from uuid import uuid4
+from tqdm import tqdm
+import logging
+from random import sample
 import json
 from apscheduler.executors.pool import ProcessPoolExecutor
 import sys
@@ -12,7 +16,10 @@ from datetime import datetime, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 import os
 import time
+from multiprocessing import Pool
+ 
 
+logging.basicConfig(level=35, stream=sys.stdout)
 
 class User():
   def __init__(self):
@@ -44,21 +51,22 @@ def generate_paths(user_list):
     dataset_path = api.artifact('genie/recents:latest').download()+ '/dataset.pickle'
     with open(dataset_path,'rb') as f:
         dataset_dict = dill.loads(f.read())
+    filter_path = api.artifact('genie/potential_filter:latest').download() + '/filter.pickle'
+    with open(filter_path, 'rb') as f:
+        filter_model = dill.loads(f.read())['model']
 
     df = dataset_dict['df_general']
 
     df['sentences'] = df.article.apply(lambda doc : [item for sublist in [ x.splitlines() for x in nltk.tokenize.sent_tokenize(doc)] for item in sublist])
-    grouped_dfs = [x for x in df.groupby('comments')]
-    ls_dfs = []
-    for i,x in grouped_dfs:
-        ls_dfs.append([x]*i) 
-    
-    # Generate a dataframe where a page picking a random page is portportional to the number of comments
-    normalized_df = pd.concat([item for sublist in ls_dfs for item in sublist],ignore_index=True) 
+    df['tokens'] = df.post_title.apply(lambda title: [x for x in gensim.utils.simple_preprocess(title) if x in filter_model.index])
+    df['p'] = df.tokens.apply(lambda tokens: filter_model.loc[tokens].values)
+    df['filter'] = df.p.apply(lambda probs:  np.prod(probs)/(np.prod(probs)+np.prod(1-probs) > 0.95))
+
+    ls = [item for sublist in [[k]*v for k,v in df.comments.to_dict().items()] for item in sublist]
 
     # now we sample all the pages
-    samples = normalized_df.sample(n=len(user_list)*6)
-    for i, user in enumerate( user_list):
+    samples = df.loc[sample(ls,len(user_list)*6)]
+    for i, user in tqdm(enumerate( user_list), total = len(user_list)):
         for j in range(6):
             user.timestamps[j] = (user.timestamps[j], samples.iloc[i*6+j])
     
@@ -66,20 +74,10 @@ def generate_paths(user_list):
 
 def generate_requests(user_list):
 
-    ## First get the filter
-    api = wandb.Api()
-    filter_path = api.artifact('genie/potential_filter:latest').download() + '/filter.pickle'
-    with open(filter_path, 'rb') as f:
-        filter_model = dill.loads(f.read())['model']
-
-    requests = [] 
-    for user in user_list:
+    requests = []
+    for user in tqdm(user_list, total=len(user_list)):
         for time, article in user.timestamps:
-            tokens = gensim.utils.simple_preprocess(article.post_title)
-            tokens = [x for x in tokens if x in filter_model.index]
-            probs = filter_model.loc[tokens].values
-            prob = np.prod(probs)/(np.prod(probs)+np.prod(1-probs))
-            if prob > 0.95:
+            if article.filter == True:
                 requests.append({'offset':time, 'data':{ 'user_id':user.uuid, 'url':article.media_url, 'sentences': article.sentences}})
     return requests
 
@@ -88,17 +86,25 @@ def post(data,time):
     res = r.post('http://159.196.178.94:8080/',json=data)
     with open('responses', 'ab+') as f:
             dill.dump([time,res],f)
-    print(time,res.elapsed)
+    logging.log(35,f'{time},{res.elapsed}')
       
 
-def main(n_users=10):
+def init_user(user):
+    user.generate_timestamps()
+    user.uuid = uuid4()
+    return user
+
+def generate_users(n_users=10):
     user_list = []
     for i in range(n_users):
         user = User()
-        user.signup()
-        user.generate_timestamps()
         user_list.append(user)
+    pool = Pool()
+    user_list = list(tqdm(pool.imap(init_user, user_list), total= len(user_list)))
     user_list= generate_paths(user_list)
+    return user_list
+
+def main(user_list):
     requests = generate_requests(user_list)
 
     requests = [x for x in requests if x['offset'] < 5*60]
@@ -107,6 +113,8 @@ def main(n_users=10):
         os.remove('responses')
     except FileNotFoundError:
         pass
+
+    print(f'Running Test for {len(n_users)} users')
     s = BackgroundScheduler(executors = { 'processpool': ProcessPoolExecutor(48) })
     now = datetime.now()
     for request in requests:
@@ -129,15 +137,17 @@ def main(n_users=10):
         request_data = json.loads(res[1].request.body)
         df.loc[len(df)] = [request_data['user_id'], res[0], request_data, res[1].elapsed]
 
-    df.to_pickle(f'{n_users}.pickle')
+    df.to_pickle(f'{len(user_list)}.pickle')
 
 if __name__ == '__main__':
     nltk.download('punkt',download_dir='./venv/nltk_data')
     if len(sys.argv) > 1:
-        lengths = sys.argv[1:]
+        lengths = [int(x) for x in sys.argv[1:]]
+        core_list = generate_users(max(lengths))
         for users in lengths:
             r.get('http://159.196.178.94:8080/reset')
-            main(int(users))
+            main(sample(core_list,users))
+
          
     else:
         print('No lengths specified')
