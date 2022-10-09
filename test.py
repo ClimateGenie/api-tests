@@ -1,5 +1,5 @@
-import requests as r
 from uuid import uuid4
+import requests as r
 from tqdm import tqdm
 import logging
 from random import sample, choices
@@ -60,7 +60,8 @@ def generate_paths(user_list):
     df['sentences'] = df.article.apply(lambda doc : [item for sublist in [ x.splitlines() for x in nltk.tokenize.sent_tokenize(doc)] for item in sublist])
     df['tokens'] = df.post_title.apply(lambda title: [x for x in gensim.utils.simple_preprocess(title) if x in filter_model.index])
     df['p'] = df.tokens.apply(lambda tokens: filter_model.loc[tokens].values)
-    df['filter'] = df.p.apply(lambda probs:  np.prod(probs)/(np.prod(probs)+np.prod(1-probs) > 0.95))
+    df['ps'] =  df.p.apply(lambda probs:  np.prod(probs)/(np.prod(probs)+np.prod(1-probs)))
+    df['filter'] = df.ps.apply(lambda ps:  ps > 0.95)
 
     ls = [item for sublist in [[k]*v for k,v in df.comments.to_dict().items()] for item in sublist]
 
@@ -77,8 +78,8 @@ def generate_requests(user_list):
     requests = []
     for user in tqdm(user_list, total=len(user_list)):
         for time, article in user.timestamps:
-            if article.filter == True:
-                requests.append({'offset':time, 'data':{ 'user_id':user.uuid, 'url':article.media_url, 'sentences': article.sentences}})
+            if article['filter'] == True:
+                requests.append({'offset':time, 'data':{ 'user_id':str(user.uuid), 'url':article.media_url, 'sentences': article.sentences}})
     return requests
 
 
@@ -108,6 +109,7 @@ def main(user_list):
     requests = generate_requests(user_list)
 
     requests = [x for x in requests if x['offset'] < 5*60]
+
 
     try:
         os.remove('responses')
