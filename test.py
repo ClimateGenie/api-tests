@@ -2,7 +2,7 @@ import requests as r
 from uuid import uuid4
 from tqdm import tqdm
 import logging
-from random import sample
+from random import sample, choices
 import json
 from apscheduler.executors.pool import ProcessPoolExecutor
 import sys
@@ -19,7 +19,7 @@ import time
 from multiprocessing import Pool
  
 
-logging.basicConfig(level=35, stream=sys.stdout)
+logging.basicConfig(level=40, stream=sys.stdout)
 
 class User():
   def __init__(self):
@@ -65,7 +65,7 @@ def generate_paths(user_list):
     ls = [item for sublist in [[k]*v for k,v in df.comments.to_dict().items()] for item in sublist]
 
     # now we sample all the pages
-    samples = df.loc[sample(ls,len(user_list)*6)]
+    samples = df.loc[choices(ls,k=len(user_list)*6)]
     for i, user in tqdm(enumerate( user_list), total = len(user_list)):
         for j in range(6):
             user.timestamps[j] = (user.timestamps[j], samples.iloc[i*6+j])
@@ -114,22 +114,26 @@ def main(user_list):
     except FileNotFoundError:
         pass
 
-    print(f'Running Test for {len(n_users)} users')
+    print(f'Running Test for {len(user_list)} users')
     s = BackgroundScheduler(executors = { 'processpool': ProcessPoolExecutor(48) })
     now = datetime.now()
     for request in requests:
         s.add_job(post, trigger = 'date', run_date =  now + timedelta(seconds=request['offset']),kwargs= {'data':request['data'], 'time':request['offset']})
 
     s.start()
-    time.sleep(5*60)
+    for i in tqdm(range(5*60),total=5*60):
+        time.sleep(1)
 
     data = []
-    with open('responses', 'rb') as fr:
-        try:
-            while True:
-                data.append(dill.load(fr))
-        except EOFError:
-            pass
+    try: 
+        with open('responses', 'rb') as fr:
+            try:
+                while True:
+                    data.append(dill.load(fr))
+            except EOFError:
+                pass
+    except FileNotFoundError:
+        pass
 
     # Now we save the responses
     df = pd.DataFrame(columns=['user_id','request_time', 'request_data', 'elapsed_time'])
