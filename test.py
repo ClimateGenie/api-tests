@@ -30,7 +30,7 @@ class User():
     
   def generate_timestamps(self):
       #Average person will spend 50 secs with standard dev of 20
-      s = np.random.normal(50, 20, 6)
+      s = np.random.normal(50, 20, 18)
       #Negative becomes positive
       s = [np.abs(x) for x in s]
       
@@ -66,10 +66,10 @@ def generate_paths(user_list):
     ls = [item for sublist in [[k]*v for k,v in df.comments.to_dict().items()] for item in sublist]
 
     # now we sample all the pages
-    samples = df.loc[choices(ls,k=len(user_list)*6)]
+    samples = df.loc[choices(ls,k=len(user_list)*18)]
     for i, user in tqdm(enumerate( user_list), total = len(user_list)):
-        for j in range(6):
-            user.timestamps[j] = (user.timestamps[j], samples.iloc[i*6+j])
+        for j in range(18):
+            user.timestamps[j] = (user.timestamps[j], samples.iloc[i*18+j])
     
     return user_list
 
@@ -108,7 +108,7 @@ def generate_users(n_users=10):
 def main(user_list):
     requests = generate_requests(user_list)
 
-    requests = [x for x in requests if x['offset'] < 5*60]
+    requests = [x for x in requests if x['offset'] < 15*60]
 
 
     try:
@@ -123,7 +123,7 @@ def main(user_list):
         s.add_job(post, trigger = 'date', run_date =  now + timedelta(seconds=request['offset']),kwargs= {'data':request['data'], 'time':request['offset']})
 
     s.start()
-    for i in tqdm(range(5*60),total=5*60):
+    for i in tqdm(range(15*60),total=15*60):
         time.sleep(1)
 
     data = []
@@ -141,7 +141,7 @@ def main(user_list):
     df = pd.DataFrame(columns=['user_id','request_time', 'request_data', 'elapsed_time'])
     for res in data:
         request_data = json.loads(res[1].request.body)
-        df.loc[len(df)] = [request_data['user_id'], res[0], request_data, res[1].elapsed]
+        df.loc[len(df)] = [request_data['user_id'], res[0], request_data, res[1].elapsed, res.code]
 
     df.to_pickle(f'{len(user_list)}.pickle')
 
